@@ -1,0 +1,192 @@
+ private void makePieces() {
+        pieces.getChildren().clear();
+        for (char p = 'Q'; p < 'W'; p++) {
+            pieces.getChildren().add(new DraggableFXPiece(p));
+        }
+ }
+------------------------------------------------------------------------------------------------------------------------
+
+class FXPiece extends ImageView {
+        char piece;
+
+        /**
+         * Construct a particular playing piece
+         * @param piece The letter representing the piece to be created.
+         */
+        FXPiece(char piece) {
+            if (!(piece >= 'Q' && piece <= 'V')) {
+                throw new IllegalArgumentException("Bad piece: \"" + piece + "\"");
+            }
+            /*
+             * Images used for game are all in the public domain, CC 0
+             *  https://pixabay.com/en/animal-1299834_1280.png
+             *  https://pixabay.com/en/bones-1295805_1280.png
+             *  https://pixabay.com/en/cats-30746_1280.png
+             *  https://pixabay.com/en/fish-260709_1280.png
+             *  https://pixabay.com/en/cartoon-style-1293997_1280.png
+             *  https://pixabay.com/en/sheep-183057_1280.png
+             */
+            setImage(new Image(Board.class.getResource(URI_BASE + piece + ".png").toString()));
+            this.piece = piece;
+            setFitHeight(SQUARE_SIZE * 2);
+            setFitWidth(SQUARE_SIZE * 2);
+        }
+
+        /**
+         * Construct a particular playing piece at a particular place on the
+         * board at a given orientation.
+         * @param position A three-character string describing
+         *                 - the place the piece is to be located ('A' - 'P'),
+         *                 - the piece ('R' - 'V'), and
+         *                 - the orientatiojn ('W' - 'Z')
+         */
+        FXPiece(String position) {
+            this(position.charAt(1));
+            if (position.length() != 3 ||
+                    position.charAt(0) < 'A' || position.charAt(0) > 'P' ||
+                    position.charAt(2) < 'W' || position.charAt(2) > 'Z') {
+                throw new IllegalArgumentException("Bad position string: " + position);
+            }
+            int pos = position.charAt(0) - 'A';
+            int o = (position.charAt(2) - 'W');
+            int x = (pos % Habitat.SIDE) - (((o + 1) / 2) % 2);
+            int y = (pos / Habitat.SIDE) - (o / 2);
+            setLayoutX(BOARD_X + x * SQUARE_SIZE);
+            setLayoutY(BOARD_Y + y * SQUARE_SIZE);
+            setRotate(90 * o);
+        }
+    }
+------------------------------------------------------------------------------------------------------------------------
+
+class DraggableFXPiece extends FXPiece {
+        int position;               // the current game position of the piece 0 .. 15 (-1 is off-board)
+        int homeX, homeY;           // the position in the window where the piece should be when not on the board
+        double mouseX, mouseY;      // the last known mouse positions (used when dragging)
+
+        /**
+         * Construct a draggable piece
+         * @param piece The piece identifier ('Q' - 'V')
+         */
+        DraggableFXPiece(char piece) {
+            super(piece);
+            position = -1; // off screen
+            homeX = MARGIN + (SQUARE_SIZE * (((piece - 'Q') % 2) * 7));
+            setLayoutX(homeX);
+            homeY = MARGIN + (SQUARE_SIZE * (2 * ((piece - 'Q') / 2)));
+            setLayoutY(homeY);
+
+            /* event handlers */
+            setOnScroll(event -> {            // scroll to change orientation
+                hideSkulls();
+                hideCompletion();
+                rotate();
+                event.consume();
+            });
+            setOnMousePressed(event -> {      // mouse press indicates begin of drag
+                mouseX = event.getSceneX();
+                mouseY = event.getSceneY();
+            });
+            setOnMouseDragged(event -> {      // mouse is being dragged
+                hideCompletion();
+                hideSkulls();
+                toFront();
+                double movementX = event.getSceneX() - mouseX;
+                double movementY = event.getSceneY() - mouseY;
+                setLayoutX(getLayoutX() + movementX);
+                setLayoutY(getLayoutY() + movementY);
+                mouseX = event.getSceneX();
+                mouseY = event.getSceneY();
+                event.consume();
+            });
+            setOnMouseReleased(event -> {     // drag is complete
+                snapToGrid();
+            });
+        }
+
+
+        /**
+         * Snap the piece to the nearest grid position (if it is over the grid)
+         */
+        private void snapToGrid() {
+            setLayoutX(SQUARE_SIZE * (((int) getLayoutX() + (SQUARE_SIZE / 2)) / SQUARE_SIZE));
+            setLayoutY(SQUARE_SIZE * (((int) getLayoutY() + (SQUARE_SIZE / 2)) / SQUARE_SIZE));
+            setPosition();
+            if (position != -1) {
+                checkMove();
+            } else {
+                snapToHome();
+            }
+        }
+
+
+        /**
+         * Snap the piece to its home position (if it is not on the grid)
+         */
+        private void snapToHome() {
+            setLayoutX(homeX);
+            setLayoutY(homeY);
+            setRotate(0);
+            position = -1;
+        }
+
+
+        /**
+         * Rotate the piece by 90 degrees
+         */
+        private void rotate() {
+            setRotate((getRotate() + 90) % 360);
+            setPosition();
+            checkMove();
+        }
+
+
+        /**
+         * Determine whether the whole piece is on the board, given x and y
+         * coordinates representing the top-left corner of the piece in its
+         * current rotation.
+         * @param x The column that the origin of the piece is on
+         * @param y The row that the origin of the piece is on
+         * @return True if the entire piece is on the board
+         */
+        private boolean isOnBoard(int x, int y) {
+            if (piece < 'U')  // 'L'-shaped pieces are simple, because they're basically square
+                return x >= 0 && x < 3 && y >= 0 && y < 3;
+            else {            // For 'I'-shaped pieces it depends on the orientation
+                switch ((int) getRotate()) {
+                    case 0:
+                        return x >= 0  && x < 3 && y >= 0  && y < 4;
+                    case 90:
+                        return x >= -1 && x < 3 && y >= 0  && y < 3;
+                    case 180:
+                        return x >= 0  && x < 3 && y >= -1 && y < 3;
+                    case 270: default:
+                        return x >= 0  && x < 4 && y >= 0  && y < 3;
+                }
+            }
+        }
+
+
+        /**
+         * Determine the grid-position of the origin of the piece (0 .. 15)
+         * or -1 if it is off the grid, taking into account its rotation.
+         */
+        private void setPosition() {
+            int x = (int) (getLayoutX() - BOARD_X) / SQUARE_SIZE;
+            int y = (int) (getLayoutY() - BOARD_Y) / SQUARE_SIZE;
+            if (isOnBoard(x,y)) {
+                /*  find 'position' (reference point is top left of *un*rotated piece */
+                int rotate = (int) getRotate() / 90;
+                x += (rotate == 0 || rotate == 3) ? 0 : 1;
+                y += rotate / 2;
+                position = x + y * Habitat.SIDE;
+            } else
+                position = -1;
+        }
+
+
+        /** Represent the piece placement as a string */
+        public String toString() {
+            char orientation = (char) ('W' + (int) (getRotate()/ 90));
+            return position == -1 ? "" : "" + (char)('A'+position) + piece + orientation;
+        }
+    }
